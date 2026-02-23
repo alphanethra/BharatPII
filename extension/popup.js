@@ -8,7 +8,7 @@ document.getElementById("scanBtn").addEventListener("click", async () => {
         return;
     }
 
-    output.textContent = "Scanning... Please wait.";
+    output.textContent = "Scanning... Please wait...";
 
     try {
         const formData = new FormData();
@@ -23,8 +23,32 @@ document.getElementById("scanBtn").addEventListener("click", async () => {
 
         console.log("Full OCR Response:", result);
 
-        // IMPORTANT: use textContent not innerText
-        output.textContent = result.extracted_text;
+        // Safe fallback handling
+        let pii = result.pii_detected || {
+            aadhaar: [],
+            pan: [],
+            phone: [],
+            email: [],
+            credit_card: []
+        };
+
+        let riskLevel = result.risk_level || "UNKNOWN";
+
+        let summary =
+            "Scan Complete ✅\n\n" +
+            "Risk Level: " + riskLevel + "\n\n" +
+            "Detected PII:\n" +
+            "--------------------------------\n" +
+            "Aadhaar: " + pii.aadhaar.length + "\n" +
+            "PAN: " + pii.pan.length + "\n" +
+            "Phone: " + pii.phone.length + "\n" +
+            "Email: " + pii.email.length + "\n" +
+            "Credit Card: " + pii.credit_card.length + "\n\n" +
+            "--------------------------------\n\n" +
+            "Extracted Text:\n\n" +
+            (result.extracted_text || "No text extracted.");
+
+        output.textContent = summary;
 
     } catch (error) {
         console.error("Error:", error);
