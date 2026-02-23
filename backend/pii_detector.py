@@ -1,47 +1,31 @@
 import re
 
+import re
+
 def detect_pii(text):
-    results = {}
+    """
+    Detect various types of Personally Identifiable Information (PII)
+    from extracted OCR text.
+    """
 
-    # Aadhaar (12 digits, optional spaces)
-    aadhaar_pattern = r"\b\d{4}\s?\d{4}\s?\d{4}\b"
-    results["aadhaar"] = re.findall(aadhaar_pattern, text)
+    pii_data = {
+        # Identity Numbers
+        "aadhaar": list(set(re.findall(r"\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b", text))),
+        "pan": list(set(re.findall(r"\b[A-Za-z]{5}[0-9]{4}[A-Za-z]\b", text))),
+        "voter_id": list(set(re.findall(r"\b[A-Z]{3}[0-9]{7}\b", text))),
+        "passport": list(set(re.findall(r"\b[A-Z][0-9]{7}\b", text))),
+        "driving_license": list(set(re.findall(r"\b[A-Z]{2}\d{2}\d{4}\d{7}\b", text))),
 
-    # PAN (ABCDE1234F format)
-    pan_pattern = r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"
-    results["pan"] = re.findall(pan_pattern, text)
+        # Contact Information
+        "phone": list(set(re.findall(r"\b[6-9]\d{9}\b", text))),
+        "email": list(set(re.findall(r"\b[\w\.-]+@[\w\.-]+\.\w+\b", text))),
 
-    # Phone numbers (Indian)
-    phone_pattern = r"\b[6-9]\d{9}\b"
-    results["phone"] = re.findall(phone_pattern, text)
+        # Financial
+        "bank_account": list(set(re.findall(r"\b\d{9,18}\b", text))),
+        "ifsc": list(set(re.findall(r"\b[A-Z]{4}0[A-Z0-9]{6}\b", text))),
 
-    # Email
-    email_pattern = r"\b[\w\.-]+@[\w\.-]+\.\w+\b"
-    results["email"] = re.findall(email_pattern, text)
+        # Personal Details
+        "dob": list(set(re.findall(r"\b\d{2}/\d{2}/\d{4}\b", text)))
+    }
 
-    # Credit Card (13–16 digits)
-    cc_pattern = r"\b\d{13,16}\b"
-    results["credit_card"] = re.findall(cc_pattern, text)
-
-    return results
-
-def calculate_risk(results):
-    score = 0
-
-    if results["aadhaar"]:
-        score += 3
-    if results["pan"]:
-        score += 3
-    if results["credit_card"]:
-        score += 4
-    if results["phone"]:
-        score += 1
-    if results["email"]:
-        score += 1
-
-    if score >= 6:
-        return "HIGH"
-    elif score >= 3:
-        return "MEDIUM"
-    else:
-        return "LOW"
+    return pii_data
