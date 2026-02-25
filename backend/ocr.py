@@ -8,7 +8,6 @@ import re
 # Path to Tesseract
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-
 def preprocess_image(image):
     img = np.array(image)
 
