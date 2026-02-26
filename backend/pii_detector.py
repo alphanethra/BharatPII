@@ -51,9 +51,14 @@ def detect_pii(text):
     # --------------------------
     # Driving License
     # --------------------------
+    driving_license_raw = re.findall(
+    r"\b[A-Z]{2}\d{2}\s?\d{4}\d{7}\b",
+    text_clean
+)
+
     driving_license = list(set(
-        re.findall(r"\b[A-Z]{2}\d{2}\d{4}\d{7}\b", text_clean)
-    ))
+    dl.replace(" ", "") for dl in driving_license_raw
+))
 
     # --------------------------
     # Voter ID

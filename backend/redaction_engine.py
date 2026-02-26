@@ -73,8 +73,13 @@ def redact_text(text, pii_results):
 # ==========================================================
 # IMAGE REDACTION (WITH CONFIDENCE FILTER)
 # ==========================================================
-
 def redact_image(image_bytes, pii_results):
+
+    import re
+    import cv2
+    import numpy as np
+    import pytesseract
+    from pytesseract import Output
 
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -85,16 +90,20 @@ def redact_image(image_bytes, pii_results):
     ocr_data = pytesseract.image_to_data(img, output_type=Output.DICT)
     n_boxes = len(ocr_data['text'])
 
-    # Flatten all PII values (digits only cleaned)
+    # -----------------------------
+    # Normalize detected PII
+    # -----------------------------
     pii_values = []
+
     for values in pii_results.values():
         for v in values:
             if v:
-                pii_values.append(re.sub(r"\s+", "", v))
-
-    height, width, _ = img.shape
+                normalized = re.sub(r"[^\dA-Z]", "", v.upper())
+                if len(normalized) >= 8:
+                    pii_values.append(normalized)
 
     i = 0
+
     while i < n_boxes:
 
         word = ocr_data['text'][i].strip()
@@ -104,26 +113,31 @@ def redact_image(image_bytes, pii_results):
             i += 1
             continue
 
-        clean_word = re.sub(r"\s+", "", word)
+        clean_word = re.sub(r"[^\dA-Z]", "", word.upper())
 
-        # --------------------------
-        # 1️⃣ Direct exact match
-        # --------------------------
-        if clean_word in pii_values:
-            x = ocr_data['left'][i]
-            y = ocr_data['top'][i]
-            w = ocr_data['width'][i]
-            h = ocr_data['height'][i]
-
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), -1)
+        if not clean_word:
             i += 1
             continue
 
-        # --------------------------
-        # 2️⃣ Multi-token digit reconstruction
-        # --------------------------
-        if re.match(r"\d", clean_word):
+        # ----------------------------------------
+        # 1️⃣ Try Exact Match (Safe)
+        # ----------------------------------------
+        for pii in pii_values:
+            if clean_word == pii:
 
+                x = ocr_data['left'][i]
+                y = ocr_data['top'][i]
+                w = ocr_data['width'][i]
+                h = ocr_data['height'][i]
+
+                if w >= 35 and h >= 18:
+                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), -1)
+
+                break
+        else:
+            # ----------------------------------------
+            # 2️⃣ Reconstruct multi-token group
+            # ----------------------------------------
             combined = clean_word
             coords = [i]
 
@@ -131,41 +145,60 @@ def redact_image(image_bytes, pii_results):
             while j < min(i + 6, n_boxes):
 
                 next_word = ocr_data['text'][j].strip()
-                next_clean = re.sub(r"\s+", "", next_word)
+                next_clean = re.sub(r"[^\dA-Z]", "", next_word.upper())
 
-                if re.match(r"[\d/.-]+", next_clean):
+                if next_clean:
                     combined += next_clean
                     coords.append(j)
                     j += 1
                 else:
                     break
 
-            combined_clean = re.sub(r"[^\d]", "", combined)
+            combined_clean = re.sub(r"[^\dA-Z]", "", combined)
 
-            # Check against PII
+            # ----------------------------------------
+            # 3️⃣ Safe containment match
+            # ----------------------------------------
             for pii in pii_values:
-                pii_digits = re.sub(r"[^\d]", "", pii)
 
-                if pii_digits and pii_digits in combined_clean:
+                # Require strong length
+                if len(combined_clean) >= len(pii) and pii in combined_clean:
+
+                    xs, ys, xe, ye = [], [], [], []
 
                     for idx in coords:
+
                         x = ocr_data['left'][idx]
                         y = ocr_data['top'][idx]
                         w = ocr_data['width'][idx]
                         h = ocr_data['height'][idx]
 
-                        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), -1)
+                        if w >= 35 and h >= 18:
+                            xs.append(x)
+                            ys.append(y)
+                            xe.append(x + w)
+                            ye.append(y + h)
+
+                    if xs:
+                        start_x = min(xs)
+                        start_y = min(ys)
+                        end_x = max(xe)
+                        end_y = max(ye)
+
+                        cv2.rectangle(
+                            img,
+                            (start_x, start_y),
+                            (end_x, end_y),
+                            (0, 0, 0),
+                            -1
+                        )
 
                     break
-
-            i = j
-            continue
 
         i += 1
 
     _, buffer = cv2.imencode(".jpg", img)
     return buffer.tobytes()
-# ==========================================================
 # PDF REDACTION
 # ==========================================================
 

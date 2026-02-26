@@ -1,55 +1,61 @@
-document.addEventListener("change", async function (event) {
+function interceptFileInputs() {
 
-    const input = event.target;
+    const inputs = document.querySelectorAll("input[type='file']");
 
-    if (input.type === "file" && input.files.length > 0) {
+    inputs.forEach(input => {
 
-        const file = input.files[0];
+        if (!input.dataset.bharatpii) {
 
-        const formData = new FormData();
-        formData.append("file", file);
+            input.dataset.bharatpii = "true";
 
-        // STEP 1: Detect PII (Normal Scan)
-        const response = await fetch("http://127.0.0.1:8000/scan", {
-            method: "POST",
-            body: formData
-        });
+            input.addEventListener("change", async function () {
 
-        const result = await response.json();
+                if (!this.files.length) return;
 
-        if (result.risk_level === "LOW") {
-            return; // allow upload normally
+                const file = this.files[0];
+
+                console.log("Intercepted:", file.name);
+
+                const formData = new FormData();
+                formData.append("file", file);
+
+                try {
+
+                    const response = await fetch("http://localhost:8000/scan?redact=true", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const blob = await response.blob();
+
+                    const redactedFile = new File([blob], file.name, {
+                        type: blob.type
+                    });
+
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(redactedFile);
+
+                    this.files = dataTransfer.files;
+
+                    alert("BharatPII Shield: File Redacted ✅");
+
+                } catch (err) {
+                    console.error("BharatPII Error:", err);
+                }
+            });
         }
+    });
+}
 
-        // STEP 2: Show Warning Popup
-        const userChoice = confirm(
-            `⚠ Sensitive PII Detected!\n\nRisk Level: ${result.risk_level}\n\nDo you want to redact before upload?`
-        );
+// Run initially
+interceptFileInputs();
 
-        if (!userChoice) {
-            input.value = ""; // Cancel upload
-            return;
-        }
+// Run whenever DOM updates (important for Google Forms)
+const observer = new MutationObserver(() => {
+    interceptFileInputs();
+});
 
-        // STEP 3: Call Redaction Endpoint
-        const redactResponse = await fetch("http://127.0.0.1:8000/scan?redact=true", {
-            method: "POST",
-            body: formData
-        });
-
-        const blob = await redactResponse.blob();
-
-        // STEP 4: Replace File Using DataTransfer
-        const sanitizedFile = new File([blob], file.name, {
-            type: blob.type
-        });
-
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(sanitizedFile);
-
-        input.files = dataTransfer.files;
-
-        alert("✅ File redacted and replaced successfully!");
-
-    }
+observer.observe(document.body, {
+    childList: true,
+    subtree: true
 });
