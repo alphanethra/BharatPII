@@ -5,7 +5,7 @@ import io
 # IMPORTANT: use YOUR poppler path
 # POPPLER_PATH = r"C:\Users\karth\Downloads\poppler\Library\bin"
 
-POPPLER_PATH = r"C:\poppler\poppler-25.12.0\Library\bin"
+POPPLER_PATH = r"C:\Users\karth\Downloads\poppler\Library\bin"
 def ocr_scanned_pdf(file_bytes):
     images = convert_from_bytes(
         file_bytes,
