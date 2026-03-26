@@ -73,7 +73,7 @@ def redact_text(text, pii_results):
 # ==========================================================
 # IMAGE REDACTION (WITH CONFIDENCE FILTER)
 # ==========================================================
-def redact_image(image_bytes, pii_results):
+def redact_image(image_bytes, pii_results, processed_bytes=None):
 
     import re
     import cv2
@@ -81,13 +81,20 @@ def redact_image(image_bytes, pii_results):
     import pytesseract
     from pytesseract import Output
 
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    nparr_orig = np.frombuffer(image_bytes, np.uint8)
+    img_orig = cv2.imdecode(nparr_orig, cv2.IMREAD_COLOR)
+    
+    # Draw on the processed (blurred) image if provided, otherwise on original
+    if processed_bytes:
+        nparr_draw = np.frombuffer(processed_bytes, np.uint8)
+        img_draw = cv2.imdecode(nparr_draw, cv2.IMREAD_COLOR)
+    else:
+        img_draw = img_orig.copy()
 
-    if img is None:
-        return image_bytes
+    if img_orig is None or img_draw is None:
+        return processed_bytes or image_bytes
 
-    ocr_data = pytesseract.image_to_data(img, output_type=Output.DICT)
+    ocr_data = pytesseract.image_to_data(img_orig, output_type=Output.DICT)
     n_boxes = len(ocr_data['text'])
 
     # -----------------------------
@@ -131,7 +138,7 @@ def redact_image(image_bytes, pii_results):
                 h = ocr_data['height'][i]
 
                 if w >= 35 and h >= 18:
-                    cv2.rectangle(img, (x, y), (x + w, y + h), (0, 0, 0), -1)
+                    cv2.rectangle(img_draw, (x, y), (x + w, y + h), (0, 0, 0), -1)
 
                 break
         else:
@@ -165,19 +172,28 @@ def redact_image(image_bytes, pii_results):
                 if len(combined_clean) >= len(pii) and pii in combined_clean:
 
                     xs, ys, xe, ye = [], [], [], []
-
+                    match_start = combined_clean.find(pii)
+                    match_end = match_start + len(pii)
+                    
+                    pos = 0
                     for idx in coords:
+                        token_clean = re.sub(r"[^\dA-Z]", "", ocr_data['text'][idx].strip().upper())
+                        token_len = len(token_clean)
+                        
+                        # Only include token bounds if it overlaps with the matched PII text
+                        if pos < match_end and (pos + token_len) > match_start:
+                            x = ocr_data['left'][idx]
+                            y = ocr_data['top'][idx]
+                            w = ocr_data['width'][idx]
+                            h = ocr_data['height'][idx]
 
-                        x = ocr_data['left'][idx]
-                        y = ocr_data['top'][idx]
-                        w = ocr_data['width'][idx]
-                        h = ocr_data['height'][idx]
-
-                        if w >= 35 and h >= 18:
-                            xs.append(x)
-                            ys.append(y)
-                            xe.append(x + w)
-                            ye.append(y + h)
+                            if w >= 30 and h >= 15:
+                                xs.append(x)
+                                ys.append(y)
+                                xe.append(x + w)
+                                ye.append(y + h)
+                                
+                        pos += token_len
 
                     if xs:
                         start_x = min(xs)
@@ -186,7 +202,7 @@ def redact_image(image_bytes, pii_results):
                         end_y = max(ye)
 
                         cv2.rectangle(
-                            img,
+                            img_draw,
                             (start_x, start_y),
                             (end_x, end_y),
                             (0, 0, 0),
@@ -197,7 +213,7 @@ def redact_image(image_bytes, pii_results):
 
         i += 1
 
-    _, buffer = cv2.imencode(".jpg", img)
+    _, buffer = cv2.imencode(".jpg", img_draw)
     return buffer.tobytes()
 # PDF REDACTION
 # ==========================================================

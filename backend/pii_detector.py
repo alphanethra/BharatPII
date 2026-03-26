@@ -114,6 +114,14 @@ def detect_pii(text):
         bank_account = list(set(potential_accounts))
 
     # --------------------------
+    # VID (Virtual ID - 16 digits on Aadhaar)
+    # --------------------------
+    vids_to_ignore = []
+    vid_raw = re.findall(r"\bVID\s*[:\-]?\s*\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b", text_clean, re.IGNORECASE)
+    for v in vid_raw:
+        vids_to_ignore.append(re.sub(r"[^\d]", "", v))
+
+    # --------------------------
     # Credit / Debit Card (Luhn validated)
     # --------------------------
     credit_debit_card = []
@@ -125,6 +133,8 @@ def detect_pii(text):
     potential_cards = re.findall(r"\d{13,19}", text_digits_only)
 
     for num in potential_cards:
+        if num in vids_to_ignore:
+            continue
         if luhn_check(num):
             credit_debit_card.append(num)
 

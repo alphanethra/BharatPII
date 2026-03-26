@@ -38,7 +38,7 @@ def detect_and_blur_signature(image_bytes):
             blur_width_expand = int(width * 0.08)
 
             start_y = max(0, y - blur_height)
-            end_y = y + int(h * 0.3)
+            end_y = y  # Stop exactly at top of word so "Signature" remains visible
 
             start_x = max(0, x - blur_width_expand)
             end_x = min(width, x + w + blur_width_expand)
