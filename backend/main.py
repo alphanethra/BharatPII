@@ -93,7 +93,7 @@ async def scan_file(file: UploadFile = File(...), redact: bool = False):
             }
 
         elif filename.endswith((".jpg", ".jpeg", ".png")):
-            redacted_image = redact_image(file_bytes, pii_results, processed_bytes=processed_file)
+            redacted_image = redact_image(processed_file, pii_results)
             return StreamingResponse(
                 io.BytesIO(redacted_image),
                 media_type="image/jpeg"

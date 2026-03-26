@@ -73,7 +73,7 @@ def redact_text(text, pii_results):
 # ==========================================================
 # IMAGE REDACTION (WITH CONFIDENCE FILTER)
 # ==========================================================
-def redact_image(image_bytes, pii_results, processed_bytes=None):
+def redact_image(image_bytes, pii_results):
 
     import re
     import cv2
@@ -81,33 +81,56 @@ def redact_image(image_bytes, pii_results, processed_bytes=None):
     import pytesseract
     from pytesseract import Output
 
-    nparr_orig = np.frombuffer(image_bytes, np.uint8)
-    img_orig = cv2.imdecode(nparr_orig, cv2.IMREAD_COLOR)
-    
-    # Draw on the processed (blurred) image if provided, otherwise on original
-    if processed_bytes:
-        nparr_draw = np.frombuffer(processed_bytes, np.uint8)
-        img_draw = cv2.imdecode(nparr_draw, cv2.IMREAD_COLOR)
-    else:
-        img_draw = img_orig.copy()
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    if img_orig is None or img_draw is None:
-        return processed_bytes or image_bytes
+    if img is None:
+        return image_bytes
 
-    ocr_data = pytesseract.image_to_data(img_orig, output_type=Output.DICT)
+    ocr_data = pytesseract.image_to_data(img, output_type=Output.DICT)
     n_boxes = len(ocr_data['text'])
 
-    # -----------------------------
-    # Normalize detected PII
-    # -----------------------------
+    # build pii list
     pii_values = []
 
-    for values in pii_results.values():
+    for category, values in pii_results.items():
+
+        if category not in [
+            "aadhaar",
+            "pan",
+            "voter_id",
+            "driving_license",
+            "phone",
+            "dob"
+        ]:
+            continue
+
         for v in values:
-            if v:
-                normalized = re.sub(r"[^\dA-Z]", "", v.upper())
-                if len(normalized) >= 8:
-                    pii_values.append(normalized)
+            norm = re.sub(r"[^\dA-Z]", "", str(v).upper())
+            pii_values.append((norm, category, v))
+
+    def mask_value(value, category):
+
+        if category == "aadhaar":
+            return "XXXX XXXX " + value[-4:]
+
+        if category == "pan":
+            return "XXXXX" + value[-4:]
+
+        if category == "voter_id":
+            return "XXXXXXX" + value[-4:]
+
+        if category == "driving_license":
+            return "XXXXXXX" + value[-4:]
+
+        if category == "phone":
+            return "XXXXXX" + value[-4:]
+
+        if category == "dob":
+            year = value.split("/")[-1]
+            return "XX/XX/" + year
+
+        return "XXXX"
 
     i = 0
 
@@ -120,100 +143,95 @@ def redact_image(image_bytes, pii_results, processed_bytes=None):
             i += 1
             continue
 
-        clean_word = re.sub(r"[^\dA-Z]", "", word.upper())
+        clean = re.sub(r"[^\dA-Z]", "", word.upper())
 
-        if not clean_word:
+        if not clean:
             i += 1
             continue
 
-        # ----------------------------------------
-        # 1️⃣ Try Exact Match (Safe)
-        # ----------------------------------------
-        for pii in pii_values:
-            if clean_word == pii:
+        # merge tokens
+        combined = clean
+        coords = [i]
 
-                x = ocr_data['left'][i]
-                y = ocr_data['top'][i]
-                w = ocr_data['width'][i]
-                h = ocr_data['height'][i]
+        j = i + 1
+        while j < min(i + 4, n_boxes):
 
-                if w >= 35 and h >= 18:
-                    cv2.rectangle(img_draw, (x, y), (x + w, y + h), (0, 0, 0), -1)
+            nxt = ocr_data['text'][j].strip()
+            nxt_clean = re.sub(r"[^\dA-Z]", "", nxt.upper())
 
+            if nxt_clean:
+                combined += nxt_clean
+                coords.append(j)
+                j += 1
+            else:
                 break
-        else:
-            # ----------------------------------------
-            # 2️⃣ Reconstruct multi-token group
-            # ----------------------------------------
-            combined = clean_word
-            coords = [i]
 
-            j = i + 1
-            while j < min(i + 6, n_boxes):
+        for pii_norm, category, original in pii_values:
 
-                next_word = ocr_data['text'][j].strip()
-                next_clean = re.sub(r"[^\dA-Z]", "", next_word.upper())
+            # strict length match
+            if combined != pii_norm:
+                continue
 
-                if next_clean:
-                    combined += next_clean
-                    coords.append(j)
-                    j += 1
-                else:
-                    break
+            xs, ys, xe, ye = [], [], [], []
 
-            combined_clean = re.sub(r"[^\dA-Z]", "", combined)
+            for idx in coords:
+                x = ocr_data['left'][idx]
+                y = ocr_data['top'][idx]
+                w = ocr_data['width'][idx]
+                h = ocr_data['height'][idx]
 
-            # ----------------------------------------
-            # 3️⃣ Safe containment match
-            # ----------------------------------------
-            for pii in pii_values:
+                xs.append(x)
+                ys.append(y)
+                xe.append(x + w)
+                ye.append(y + h)
 
-                # Require strong length
-                if len(combined_clean) >= len(pii) and pii in combined_clean:
+            start_x = min(xs)
+            start_y = min(ys)
+            end_x = max(xe)
+            end_y = max(ye)
 
-                    xs, ys, xe, ye = [], [], [], []
-                    match_start = combined_clean.find(pii)
-                    match_end = match_start + len(pii)
-                    
-                    pos = 0
-                    for idx in coords:
-                        token_clean = re.sub(r"[^\dA-Z]", "", ocr_data['text'][idx].strip().upper())
-                        token_len = len(token_clean)
-                        
-                        # Only include token bounds if it overlaps with the matched PII text
-                        if pos < match_end and (pos + token_len) > match_start:
-                            x = ocr_data['left'][idx]
-                            y = ocr_data['top'][idx]
-                            w = ocr_data['width'][idx]
-                            h = ocr_data['height'][idx]
+            masked = mask_value(original, category)
 
-                            if w >= 30 and h >= 15:
-                                xs.append(x)
-                                ys.append(y)
-                                xe.append(x + w)
-                                ye.append(y + h)
-                                
-                        pos += token_len
+            height = end_y - start_y
 
-                    if xs:
-                        start_x = min(xs)
-                        start_y = min(ys)
-                        end_x = max(xe)
-                        end_y = max(ye)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = max(0.8, height / 22)
+            thickness = 2
 
-                        cv2.rectangle(
-                            img_draw,
-                            (start_x, start_y),
-                            (end_x, end_y),
-                            (0, 0, 0),
-                            -1
-                        )
+            (tw, th), _ = cv2.getTextSize(
+                masked,
+                font,
+                font_scale,
+                thickness
+            )
 
-                    break
+            cx = (start_x + end_x) // 2
+            cy = (start_y + end_y) // 2
+
+            x1 = cx - tw // 2 - 3
+            y1 = cy - th // 2 - 3
+            x2 = cx + tw // 2 + 3
+            y2 = cy + th // 2 + 3
+
+            cv2.rectangle(img,(x1,y1),(x2,y2),(0,0,0),-1)
+
+            text_x = cx - tw // 2
+            text_y = cy + th // 2
+
+            cv2.putText(
+                img,
+                masked,
+                (text_x,text_y),
+                font,
+                font_scale,
+                (255,255,255),
+                thickness,
+                cv2.LINE_AA
+            )
 
         i += 1
 
-    _, buffer = cv2.imencode(".jpg", img_draw)
+    _, buffer = cv2.imencode(".jpg", img)
     return buffer.tobytes()
 # PDF REDACTION
 # ==========================================================
