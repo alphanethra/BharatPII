@@ -1,32 +1,130 @@
 body {
-    width: 350px;
-    max-height: 500px;
-    overflow: hidden;
+
+    width: 340px;
+
+    margin: 0;
+    padding: 0;
+
     font-family: Arial, sans-serif;
+
+    background: #f4f6f9;
 }
 
-#output {
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 300px;
-    overflow-y: auto;
-    font-size: 12px;
-    background: #f5f5f5;
-    padding: 8px;
-    border-radius: 5px;
-    margin-top: 10px;
+.container {
+
+    padding: 22px;
+
+    background: white;
+
+    border-radius: 16px;
+
+    margin: 12px;
+
+    box-shadow:
+        0 6px 18px rgba(0,0,0,0.18);
+
+    text-align: center;
+}
+
+h2 {
+
+    margin-top: 0;
+
+    font-size: 24px;
+
+    color: #222;
+
+    margin-bottom: 18px;
+}
+
+#risk {
+
+    margin: 18px 0;
+
+    padding: 14px;
+
+    border-radius: 10px;
+
+    font-weight: bold;
+
+    font-size: 18px;
+
+    color: white;
+}
+
+/* Risk colors */
+
+.low {
+
+    background: #2ecc71;
+}
+
+.medium {
+
+    background: #f39c12;
+}
+
+.high {
+
+    background: #e74c3c;
+}
+
+p {
+
+    font-size: 15px;
+
+    color: #444;
+
+    line-height: 1.5;
+
+    margin-bottom: 20px;
 }
 
 button {
-  background-color: #1976d2;
-  color: white;
-  border: none;
-  padding: 6px;
-  cursor: pointer;
+
+    width: 100%;
+
+    border: none;
+
+    padding: 14px;
+
+    margin-top: 12px;
+
+    border-radius: 10px;
+
+    cursor: pointer;
+
+    font-size: 15px;
+
+    font-weight: bold;
+
+    transition: 0.2s ease;
 }
 
-pre {
-  font-size: 12px;
-  margin-top: 10px;
+/* Yes button */
+
+#yesBtn {
+
+    background: #111;
+
+    color: white;
 }
 
+#yesBtn:hover {
+
+    background: #000;
+}
+
+/* No button */
+
+#noBtn {
+
+    background: #e9ecef;
+
+    color: #111;
+}
+
+#noBtn:hover {
+
+    background: #dfe3e6;
+}

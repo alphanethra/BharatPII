@@ -1,20 +1,39 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<link rel="stylesheet" href="popup.css">
+
+    <meta charset="UTF-8">
+
+    <link rel="stylesheet" href="styles.css">
+
 </head>
+
 <body>
 
-<h3>BharatPII Shield</h3>
+    <div class="container">
 
-<div id="risk"></div>
+        <h2>⚠ PII Detected</h2>
 
-<div id="pii"></div>
+        <div id="risk" class="medium">
+            Risk Level: MEDIUM
+        </div>
 
-<button id="yesBtn">Redact & Upload</button>
-<button id="noBtn">Upload Original</button>
+        <p>
+            Do you want to redact and replace this file before upload?
+        </p>
 
-<script src="popup.js"></script>
+        <button id="yesBtn">
+            Yes, Redact File
+        </button>
+
+        <button id="noBtn">
+            No, Upload Original
+        </button>
+
+    </div>
+
+    <script src="popup.js"></script>
 
 </body>
 </html>
