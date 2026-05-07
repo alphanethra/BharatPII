@@ -2,10 +2,14 @@ import cv2
 import numpy as np
 import pytesseract
 from pytesseract import Output
+
+
 def detect_and_blur_signature(image_bytes):
     """
-    Detect 'Sign' or 'Signature' word
-    and blur a properly sized region above it.
+    Blur only handwritten signature
+    - PAN: Signature
+    - DL : Sign. Of Holder
+    - Ignore: Sign. Licensing Authority
     """
 
     nparr = np.frombuffer(image_bytes, np.uint8)
@@ -24,24 +28,30 @@ def detect_and_blur_signature(image_bytes):
 
     for i, word in enumerate(ocr_data['text']):
 
-        clean_word = word.strip().lower()
+        clean = word.strip().lower()
 
-        if "sign" in clean_word or "हस्ताक्षर" in clean_word:
+        # detect only holder signature
+        if "holder" in clean or "signature" in clean:
+
+            # avoid licensing authority
+            next_word = ""
+            if i + 1 < len(ocr_data['text']):
+                next_word = ocr_data['text'][i+1].strip().lower()
+
+            if "authority" in next_word:
+                continue
 
             x = ocr_data['left'][i]
             y = ocr_data['top'][i]
             w = ocr_data['width'][i]
             h = ocr_data['height'][i]
 
-            # 🔥 Larger blur region
-            blur_height = int(height * 0.12)  # 12% of full image height
-            blur_width_expand = int(width * 0.08)
+            # blur region ABOVE the word
+            start_y = max(0, y - int(h * 3))
+            end_y = y
 
-            start_y = max(0, y - blur_height)
-            end_y = y  # Stop exactly at top of word so "Signature" remains visible
-
-            start_x = max(0, x - blur_width_expand)
-            end_x = min(width, x + w + blur_width_expand)
+            start_x = max(0, x - int(w * 1.5))
+            end_x = min(width, x + w + int(w * 1.5))
 
             region = img[start_y:end_y, start_x:end_x]
 

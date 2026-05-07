@@ -1,61 +1,121 @@
+let interceptedInput = null;
+let interceptedFile = null;
+
 function interceptFileInputs() {
 
-    const inputs = document.querySelectorAll("input[type='file']");
+    document.querySelectorAll("input[type=file]").forEach(input => {
 
-    inputs.forEach(input => {
+        if (input.dataset.bharatpii) return;
+        input.dataset.bharatpii = "true";
 
-        if (!input.dataset.bharatpii) {
+        input.addEventListener("change", async function () {
 
-            input.dataset.bharatpii = "true";
+            if (!this.files.length) return;
 
-            input.addEventListener("change", async function () {
+            interceptedInput = this;
+            interceptedFile = this.files[0];
 
-                if (!this.files.length) return;
+            const formData = new FormData();
+            formData.append("file", interceptedFile);
 
-                const file = this.files[0];
+            try {
 
-                console.log("Intercepted:", file.name);
+                const res = await fetch("http://127.0.0.1:8000/scan", {
+                    method: "POST",
+                    body: formData
+                });
 
-                const formData = new FormData();
-                formData.append("file", file);
+                const result = await res.json();
 
-                try {
+                showPopup(result);
 
-                    const response = await fetch("http://localhost:8000/scan?redact=true", {
-                        method: "POST",
-                        body: formData
-                    });
-
-                    const blob = await response.blob();
-
-                    const redactedFile = new File([blob], file.name, {
-                        type: blob.type
-                    });
-
-                    const dataTransfer = new DataTransfer();
-                    dataTransfer.items.add(redactedFile);
-
-                    this.files = dataTransfer.files;
-
-                    alert("BharatPII Shield: File Redacted ✅");
-
-                } catch (err) {
-                    console.error("BharatPII Error:", err);
-                }
-            });
-        }
+            } catch (err) {
+                console.error("Backend not reachable", err);
+            }
+        });
     });
 }
 
-// Run initially
+function showPopup(result) {
+
+    const risk = result.risk_level;
+    const pii = result.pii_detected;
+
+    const popup = document.createElement("div");
+    popup.id = "bharatpii-popup";
+
+    popup.innerHTML = `
+        <div class="box">
+            <h3>BharatPII Shield</h3>
+
+            <div class="risk ${risk.toLowerCase()}">
+                Risk Level: ${risk}
+            </div>
+
+            <div class="pii">
+                ${formatPII(pii)}
+            </div>
+
+            <button id="yes">Redact & Upload</button>
+            <button id="no">Upload Original</button>
+        </div>
+    `;
+
+    document.body.appendChild(popup);
+
+    document.getElementById("yes").onclick = redactAndReplace;
+    document.getElementById("no").onclick = () => popup.remove();
+}
+
+function formatPII(pii){
+
+    let html = "<b>Detected PII:</b><br>";
+
+    Object.keys(pii).forEach(k => {
+        if (pii[k].length > 0)
+            html += `${k}: ${pii[k].length}<br>`;
+    });
+
+    return html;
+}
+
+async function redactAndReplace(){
+
+    const formData = new FormData();
+    formData.append("file", interceptedFile);
+
+    try {
+
+        const res = await fetch("http://127.0.0.1:8000/redact", {
+            method: "POST",
+            body: formData
+        });
+
+        const blob = await res.blob();
+
+        const redactedFile = new File(
+            [blob],
+            interceptedFile.name,
+            { type: blob.type }
+        );
+
+        const dt = new DataTransfer();
+        dt.items.add(redactedFile);
+
+        interceptedInput.files = dt.files;
+
+        document.getElementById("bharatpii-popup").remove();
+
+        alert("File replaced successfully ✅");
+
+    } catch(err){
+        console.error("Redaction failed", err);
+    }
+}
+
 interceptFileInputs();
 
-// Run whenever DOM updates (important for Google Forms)
-const observer = new MutationObserver(() => {
-    interceptFileInputs();
-});
-
-observer.observe(document.body, {
-    childList: true,
-    subtree: true
-});
+new MutationObserver(interceptFileInputs).observe(
+    document.body,
+    { childList:true, subtree:true }
+);

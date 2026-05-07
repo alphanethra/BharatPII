@@ -87,10 +87,16 @@ def redact_image(image_bytes, pii_results):
     if img is None:
         return image_bytes
 
-    ocr_data = pytesseract.image_to_data(img, output_type=Output.DICT)
+    ocr_data = pytesseract.image_to_data(
+        img,
+        output_type=Output.DICT
+    )
+
     n_boxes = len(ocr_data['text'])
 
-    # build pii list
+    # ==========================================================
+    # BUILD PII LIST
+    # ==========================================================
     pii_values = []
 
     for category, values in pii_results.items():
@@ -98,7 +104,6 @@ def redact_image(image_bytes, pii_results):
         if category not in [
             "aadhaar",
             "pan",
-            "voter_id",
             "driving_license",
             "phone",
             "dob"
@@ -106,75 +111,153 @@ def redact_image(image_bytes, pii_results):
             continue
 
         for v in values:
-            norm = re.sub(r"[^\dA-Z]", "", str(v).upper())
+
+            if not v:
+                continue
+
+            norm = re.sub(
+                r"[^\dA-Z]",
+                "",
+                str(v).upper()
+            )
+
             pii_values.append((norm, category, v))
 
+    # ==========================================================
+    # MASK FORMAT
+    # ==========================================================
     def mask_value(value, category):
 
         if category == "aadhaar":
             return "XXXX XXXX " + value[-4:]
 
-        if category == "pan":
-            return "XXXXX" + value[-4:]
-
-        if category == "voter_id":
-            return "XXXXXXX" + value[-4:]
-
-        if category == "driving_license":
-            return "XXXXXXX" + value[-4:]
-
-        if category == "phone":
+        elif category == "pan":
             return "XXXXXX" + value[-4:]
 
-        if category == "dob":
+        elif category == "driving_license":
+            return "XXXX XXXX " + value[-4:]
+
+        elif category == "phone":
+            return "X X X X X X" + value[-4:]
+
+        elif category == "dob":
             year = value.split("/")[-1]
             return "XX/XX/" + year
 
         return "XXXX"
 
+    # ==========================================================
+    # OCR ITERATION
+    # ==========================================================
     i = 0
 
     while i < n_boxes:
 
         word = ocr_data['text'][i].strip()
-        conf = int(ocr_data['conf'][i]) if ocr_data['conf'][i] != '-1' else 0
 
-        if conf < 55:
+        conf = int(
+            ocr_data['conf'][i]
+        ) if ocr_data['conf'][i] != '-1' else 0
+
+        if conf < 50:
             i += 1
             continue
 
-        clean = re.sub(r"[^\dA-Z]", "", word.upper())
+        clean = re.sub(
+            r"[^\dA-Z]",
+            "",
+            word.upper()
+        )
 
         if not clean:
             i += 1
             continue
 
-        # merge tokens
+        # ==========================================================
+        # MERGE OCR TOKENS
+        # ==========================================================
         combined = clean
         coords = [i]
 
         j = i + 1
-        while j < min(i + 4, n_boxes):
+
+        while j < min(i + 6, n_boxes):
 
             nxt = ocr_data['text'][j].strip()
-            nxt_clean = re.sub(r"[^\dA-Z]", "", nxt.upper())
+
+            nxt_clean = re.sub(
+                r"[^\dA-Z]",
+                "",
+                nxt.upper()
+            )
 
             if nxt_clean:
+
                 combined += nxt_clean
                 coords.append(j)
                 j += 1
+
             else:
                 break
 
+        # ==========================================================
+        # MATCH PII
+        # ==========================================================
+        matched = False
+
         for pii_norm, category, original in pii_values:
 
-            # strict length match
-            if combined != pii_norm:
+            if len(pii_norm) < 8:
                 continue
 
+            # ------------------------------------------------------
+            # PAN STRICT MATCH
+            # ------------------------------------------------------
+            if category == "pan":
+
+                if pii_norm != combined[:len(pii_norm)]:
+                    continue
+
+            # ------------------------------------------------------
+            # DRIVING LICENSE
+            # ------------------------------------------------------
+            elif category == "driving_license":
+
+                if pii_norm not in combined:
+                    continue
+
+            # ------------------------------------------------------
+            # DOB
+            # ------------------------------------------------------
+            elif category == "dob":
+
+                # Skip DOB masking inside DL
+                if (
+                    "driving_license" in pii_results
+                    and pii_results["driving_license"]
+                ):
+                    continue
+
+                if original.replace("/", "") not in combined:
+                    continue
+
+            # ------------------------------------------------------
+            # AADHAAR / PHONE
+            # ------------------------------------------------------
+            else:
+
+                if combined[-8:] != pii_norm[-8:]:
+                    continue
+
+            matched = True
+
+            # ======================================================
+            # REGION COORDINATES
+            # ======================================================
             xs, ys, xe, ye = [], [], [], []
 
             for idx in coords:
+
                 x = ocr_data['left'][idx]
                 y = ocr_data['top'][idx]
                 w = ocr_data['width'][idx]
@@ -187,16 +270,32 @@ def redact_image(image_bytes, pii_results):
 
             start_x = min(xs)
             start_y = min(ys)
+
             end_x = max(xe)
             end_y = max(ye)
 
+            # Extra width for PAN final character
+            if category == "pan":
+                end_x += 20
+
             masked = mask_value(original, category)
 
+            # ======================================================
+            # FONT SETTINGS
+            # ======================================================
             height = end_y - start_y
 
             font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = max(0.8, height / 22)
-            thickness = 2
+
+            font_scale = max(
+                0.7,
+                height / 28
+            )
+            if category == "phone":
+              thickness = 4
+            else:
+              thickness = 2
+            
 
             (tw, th), _ = cv2.getTextSize(
                 masked,
@@ -205,33 +304,62 @@ def redact_image(image_bytes, pii_results):
                 thickness
             )
 
-            cx = (start_x + end_x) // 2
-            cy = (start_y + end_y) // 2
+            # ======================================================
+            # BLACK BOX
+            # ======================================================
+            padding_x = 2
+            padding_y = 2
 
-            x1 = cx - tw // 2 - 3
-            y1 = cy - th // 2 - 3
-            x2 = cx + tw // 2 + 3
-            y2 = cy + th // 2 + 3
+            # PHONE SPECIAL HANDLING
+            if category == "phone":
 
-            cv2.rectangle(img,(x1,y1),(x2,y2),(0,0,0),-1)
+                x1 = start_x - 35
+                x2 = start_x + tw + 90
 
-            text_x = cx - tw // 2
-            text_y = cy + th // 2
+            else:
+
+                x1 = start_x - padding_x
+                x2 = start_x + tw + 25
+
+            y1 = start_y - padding_y
+            y2 = start_y + th + padding_y + 6
+
+            cv2.rectangle(
+                img,
+                (x1, y1),
+                (x2, y2),
+                (0, 0, 0),
+                -1
+            )
+
+            # ======================================================
+            # WHITE TEXT
+            # ======================================================
+            text_y = start_y + th - 2
 
             cv2.putText(
                 img,
                 masked,
-                (text_x,text_y),
+                (start_x, text_y),
                 font,
                 font_scale,
-                (255,255,255),
+                (255, 255, 255),
                 thickness,
                 cv2.LINE_AA
             )
 
-        i += 1
+            break
+
+        # ==========================================================
+        # SKIP DUPLICATE MASKING
+        # ==========================================================
+        if matched:
+            i += len(coords)
+        else:
+            i += 1
 
     _, buffer = cv2.imencode(".jpg", img)
+
     return buffer.tobytes()
 # PDF REDACTION
 # ==========================================================

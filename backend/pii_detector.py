@@ -77,13 +77,24 @@ def detect_pii(text):
     # --------------------------
     # DOB (Robust)
     # --------------------------
-    dob = list(set(
-        re.findall(
-            r"\d{1,2}\s*[-/\.]\s*\d{1,2}\s*[-/\.]\s*\d{4}",
-            text_clean
-        )
-    ))
-    dob = [re.sub(r"\s+", "", d) for d in dob]
+    def detect_dob(text):
+
+      dob = []
+
+      matches = re.findall(
+        r'\b(0?[1-9]|[12][0-9]|3[01])[\/\-]'
+        r'(0?[1-9]|1[0-2])[\/\-]'
+        r'(19\d{2}|20\d{2})\b',
+        text
+      )
+
+      for m in matches:
+        dob.append(f"{m[0]}/{m[1]}/{m[2]}")
+
+      return list(set(dob))
+
+
+    dob = detect_dob(text_clean)
 
     # --------------------------
     # Phone
